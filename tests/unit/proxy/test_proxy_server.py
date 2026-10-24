@@ -3857,3 +3857,38 @@ async def test_model_list_return_wildcard_routes_defaults_to_general_setting(
 
     assert "gpt-6.1-sol" in listed, listed
     assert ("openai/*" in listed) is wildcard_listed, listed
+
+
+@pytest.mark.parametrize("scope", [None, "expand"])
+@pytest.mark.parametrize("provider", ["azure", "anthropic", "openai"])
+@pytest.mark.asyncio
+async def test_model_list_provider_matches_retrieval(
+    monkeypatch: pytest.MonkeyPatch, scope: str | None, provider: str
+) -> None:
+    router: Final = litellm.Router(
+        model_list=[
+            {
+                "model_name": "hosted-model",
+                "litellm_params": {
+                    "model": f"{provider}/deployment-model",
+                    "api_key": "sk-fake",
+                    "api_base": "https://provider.example.com",
+                },
+            },
+        ],
+        model_group_alias={"friendly-name": "hosted-model"},
+    )
+    monkeypatch.setattr(litellm.proxy.proxy_server, "llm_router", router)
+    monkeypatch.setattr(litellm.proxy.proxy_server, "llm_model_list", router.model_list)
+    monkeypatch.setattr(litellm.proxy.proxy_server, "prisma_client", None)
+    monkeypatch.setattr(litellm.proxy.proxy_server, "user_model", None)
+    monkeypatch.setattr(litellm.proxy.proxy_server, "general_settings", {})
+    caller: Final = UserAPIKeyAuth(api_key="sk-test", user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    listing: Final = await litellm.proxy.proxy_server.model_list(user_api_key_dict=caller, scope=scope)
+
+    owners: Final = {row["id"]: row["owned_by"] for row in listing["data"]}
+    assert owners == {"hosted-model": provider, "friendly-name": provider}
+    for model_id in ("hosted-model", "friendly-name"):
+        retrieved: Final = await litellm.proxy.proxy_server.model_info(model_id=model_id, user_api_key_dict=caller)
+        assert owners[model_id] == retrieved["owned_by"]
