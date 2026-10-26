@@ -117,6 +117,7 @@ from litellm.litellm_core_utils.logging_utils import (
 from litellm.litellm_core_utils.model_param_helper import ModelParamHelper
 from litellm.litellm_core_utils.ptu_pricing import is_spilled_over_ptu_request
 from litellm.litellm_core_utils.redact_messages import (
+    redact_failure_from_logging,
     redact_message_input_output_from_custom_logger,
     redact_message_input_output_from_logging,
     redacted_model_call_details_for_custom_logger,
@@ -4268,14 +4269,8 @@ class Logging(LiteLLMLoggingBaseClass):
                 global_callbacks=litellm.failure_callback,
             )
 
-            result: object = None  # result sent to all loggers, init this to None incase it's not created
-
-            result = _REDACTED_RESULT.validate_python(
-                redact_message_input_output_from_logging(
-                    model_call_details=(self.model_call_details if hasattr(self, "model_call_details") else {}),
-                    result=result,
-                )
-            )
+            redact_failure_from_logging(self.model_call_details)
+            result: Final = None
             self.mark_logging_complete(event_type="sync_failure")
             for callback in callbacks:
                 try:
@@ -4470,10 +4465,8 @@ class Logging(LiteLLMLoggingBaseClass):
             global_callbacks=litellm._async_failure_callback,
         )
 
-        result: Final = redact_message_input_output_from_logging(
-            model_call_details=self.model_call_details,
-            result=None,
-        )
+        redact_failure_from_logging(self.model_call_details)
+        result: Final = None
         self.mark_logging_complete(event_type="async_failure")
         for callback in callbacks:
             try:
