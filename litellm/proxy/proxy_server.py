@@ -3280,15 +3280,7 @@ async def _repair_stale_spend_counter(counter_key: str, db_spend: float) -> None
     in-memory copy is guarded by a read-compare-write with no await in between,
     so it is atomic within the worker.
     """
-    cached: Final = spend_counter_cache.in_memory_cache.get_cache(key=counter_key)
-    needs_update = True
-    if cached is not None:
-        try:
-            needs_update = float(cached) < db_spend
-        except (TypeError, ValueError):
-            needs_update = True
-    if needs_update:
-        spend_counter_cache.in_memory_cache.set_cache(key=counter_key, value=db_spend)
+    _lift_in_memory_spend_counter(counter_key=counter_key, floor=db_spend)
     if spend_counter_cache.redis_cache is not None:
         forget_spend_counter(counter_key)
         try:
@@ -3302,6 +3294,18 @@ async def _repair_stale_spend_counter(counter_key: str, db_spend: float) -> None
             return
         if repaired is not None:
             record_spend_counter_value(counter_key, repaired)
+
+
+def _lift_in_memory_spend_counter(counter_key: str, floor: float) -> None:
+    cached: Final = spend_counter_cache.in_memory_cache.get_cache(key=counter_key)
+    needs_update = True
+    if cached is not None:
+        try:
+            needs_update = float(cached) < floor
+        except (TypeError, ValueError):
+            needs_update = True
+    if needs_update:
+        spend_counter_cache.in_memory_cache.set_cache(key=counter_key, value=floor)
 
 
 async def reseed_spend_counter_from_db(counter_key: str) -> bool:
@@ -3925,11 +3929,8 @@ async def _prepare_spend_counter_increment(
     2. If not found, reseed from the DB via `SpendCounterReseed.coalesced`.
        Falls back to the cached object's `.spend` via user_api_key_cache
        only if prisma is unavailable, since that value can lag the flusher.
-    3. Seed counter via async_increment_cache (not async_set_cache) to avoid a
-       check-then-set race: if two pods cold-start simultaneously, both may see
-       the counter as absent and seed it. Using increment means the worst case
-       is over-counting (conservative, blocks slightly early) rather than
-       under-counting (would allow overspend).
+    3. Lift the counter to at least that spend rather than adding it, so
+       requests and pods that cold-start it together count it once.
     4. Increment is returned for the caller to apply via pipeline
     """
     with service_target(SPEND_COUNTERS_TARGET):
@@ -4034,7 +4035,7 @@ async def ensure_spend_counter_initialized(
             # DB unavailable - fall back to in-process cache (may be stale).
             base_spend: Final = await _get_source_cache_base_spend(source_cache_key=source_cache_key)
             if base_spend > 0:
-                await increment_spend_counter_cache(counter_key=counter_key, increment=base_spend)
+                await _lift_spend_counter_cache(counter_key=counter_key, floor=base_spend)
 
 
 _ensure_spend_counter_initialized: Final = ensure_spend_counter_initialized
@@ -4161,6 +4162,21 @@ async def increment_spend_counter_cache(counter_key: str, increment: float) -> f
 
 
 _increment_spend_counter_cache: Final = increment_spend_counter_cache
+
+
+@with_service_target(SPEND_COUNTERS_TARGET)
+async def _lift_spend_counter_cache(counter_key: str, floor: float) -> None:
+    if spend_counter_cache.redis_cache is not None:
+        try:
+            lifted: Final = await spend_counter_cache.redis_cache.async_set_max(key=counter_key, value=floor)
+        except Exception:
+            await invalidate_spend_counter(counter_key=counter_key)
+            raise
+        if lifted is not None:
+            _lift_in_memory_spend_counter(counter_key=counter_key, floor=lifted)
+            record_spend_counter_value(counter_key, lifted)
+        return
+    _lift_in_memory_spend_counter(counter_key=counter_key, floor=floor)
 
 
 @with_service_target(SPEND_COUNTERS_TARGET)
