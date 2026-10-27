@@ -1383,6 +1383,34 @@ async def test_overlapping_cold_starts_count_the_cached_spend_once(monkeypatch, 
     assert seeded == 6.0
 
 
+class _RedisThatFailsTheLift:
+    async def async_get_cache(self, key: str, **_: object) -> None:
+        return None
+
+    async def async_set_max(self, key: str, value: float, **_: object) -> float:
+        raise ConnectionError("redis went away")
+
+    async def async_delete_cache(self, key: str, **_: object) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_a_redis_failure_while_lifting_a_cold_counter_drops_the_local_copy_and_raises(monkeypatch):
+    counter_key: Final = "spend:end_user:customer-1"
+    counters: Final = DualCache(in_memory_cache=InMemoryCache(), redis_cache=cast(RedisCache, _RedisThatFailsTheLift()))
+    counters.in_memory_cache.set_cache(key=counter_key, value=2.0)
+    objects: Final = MagicMock()
+    objects.async_get_cache = AsyncMock(return_value={"spend": 6.0})
+    monkeypatch.setattr(ps, "spend_counter_cache", counters)
+    monkeypatch.setattr(ps, "user_api_key_cache", objects)
+    monkeypatch.setattr(ps, "prisma_client", None)
+
+    with pytest.raises(ConnectionError):
+        await ps.ensure_spend_counter_initialized(counter_key=counter_key, source_cache_key="customer-1")
+
+    assert counters.in_memory_cache.get_cache(key=counter_key) is None
+
+
 # ---------------------------------------------------------------------------
 # _get_source_cache_base_spend
 # ---------------------------------------------------------------------------
