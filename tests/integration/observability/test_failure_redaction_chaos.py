@@ -253,6 +253,7 @@ def test_g3_proxy_restart_mid_burst(tmp_path: Path) -> None:
                     return (probe.status_code,)
 
                 eventually(served, lambda statuses: statuses[0] == 400, seconds=60)
+                provider.drain()
                 second: Final = _fire(rig_two, bodies[BURST // 2 :])
                 answered: Final = first + second + tuple(probes)
                 assert all(status in (400, 500) for status, _ in answered), answered

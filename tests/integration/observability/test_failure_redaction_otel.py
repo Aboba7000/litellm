@@ -202,22 +202,14 @@ def _span_for(rig: Rig, name: str, model: str) -> dict[str, JsonValue]:
     return spans[0]
 
 
-def _auth_exception_span_ids(rig: Rig) -> frozenset[str]:
-    return frozenset(
-        str(span.get("spanId"))
-        for span in rig.sink.all()
-        if str(span.get("name", "")).startswith("auth") and _exception_events(span)
-    )
-
-
-def _auth_exception_span(rig: Rig, exclude: frozenset[str]) -> dict[str, JsonValue]:
+def _auth_exception_span(rig: Rig, trace_id: str) -> dict[str, JsonValue]:
     def found() -> tuple[dict[str, JsonValue], ...]:
         return tuple(
             span
             for span in rig.sink.all()
-            if str(span.get("name", "")).startswith("auth")
+            if span.get("traceId") == trace_id
+            and str(span.get("name", "")).startswith("auth")
             and _exception_events(span)
-            and str(span.get("spanId")) not in exclude
         )
 
     return eventually(found, lambda values: len(values) >= 1, seconds=260)[0]
@@ -295,17 +287,21 @@ def test_c10_v2_auth_span_honors_header_opt_in(rig_v2_off: Rig) -> None:
         allowed: Final = scenario.model(api_base=rig_v2_off.provider.url + "/v1", api_key="synthetic-provider-key")
         denied: Final = scenario.model(api_base=rig_v2_off.provider.url + "/v1", api_key="synthetic-provider-key")
         key: Final = scenario.key(models=[allowed])
-        before: Final = _auth_exception_span_ids(rig_v2_off)
+        trace_id: Final = uuid.uuid4().hex
         response: Final = rig_v2_off.proxy.request(
             "POST",
             "/v1/chat/completions",
             {"model": denied, "messages": [{"role": "user", "content": "hi"}]},
             key=key,
-            headers={"x-litellm-enable-message-redaction": "true"},
+            headers={
+                "x-litellm-enable-message-redaction": "true",
+                "traceparent": f"00-{trace_id}-{uuid.uuid4().hex[:16]}-01",
+            },
         )
         assert response.status_code in (400, 401, 403, 404), response.text
-        auth: Final = _auth_exception_span(rig_v2_off, before)
+        auth: Final = _auth_exception_span(rig_v2_off, trace_id)
         assert allowed not in _exception_texts(auth), _exception_texts(auth)[:600]
+        assert denied not in _exception_texts(auth), _exception_texts(auth)[:600]
         assert "redacted-by-litellm" in _exception_texts(auth), _exception_texts(auth)[:600]
 
 
@@ -316,15 +312,19 @@ def test_c11_v2_auth_span_redacts_under_global_on(rig_v2_on: Rig) -> None:
         allowed: Final = scenario.model(api_base=rig_v2_on.provider.url + "/v1", api_key="synthetic-provider-key")
         denied: Final = scenario.model(api_base=rig_v2_on.provider.url + "/v1", api_key="synthetic-provider-key")
         key: Final = scenario.key(models=[allowed])
-        before: Final = _auth_exception_span_ids(rig_v2_on)
+        trace_id: Final = uuid.uuid4().hex
         response: Final = rig_v2_on.proxy.request(
             "POST",
             "/v1/chat/completions",
             {"model": denied, "messages": [{"role": "user", "content": "hi"}]},
             key=key,
-            headers={"litellm-disable-message-redaction": "true"},
+            headers={
+                "litellm-disable-message-redaction": "true",
+                "traceparent": f"00-{trace_id}-{uuid.uuid4().hex[:16]}-01",
+            },
         )
         assert response.status_code in (400, 401, 403, 404), response.text
-        auth: Final = _auth_exception_span(rig_v2_on, before)
+        auth: Final = _auth_exception_span(rig_v2_on, trace_id)
         assert allowed not in _exception_texts(auth), _exception_texts(auth)[:600]
+        assert denied not in _exception_texts(auth), _exception_texts(auth)[:600]
         assert "redacted-by-litellm" in _exception_texts(auth), _exception_texts(auth)[:600]
