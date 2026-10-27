@@ -150,6 +150,7 @@ from .streaming_handler import PassThroughStreamingHandler
 from .success_handler import PassThroughEndpointLogging
 from .upstream_usage_headers import (
     UpstreamReportedUsage,
+    apply_upstream_reported_operation,
     apply_upstream_reported_usage,
 )
 
@@ -1543,6 +1544,7 @@ async def pass_through_request(
                 logging_obj=logging_obj,
                 headers=response.headers,
             )
+            apply_upstream_reported_operation(logging_obj, response.headers)
 
             relay_response: Final = await _log_passthrough_upstream_failure(
                 response=response,
@@ -1631,6 +1633,7 @@ async def pass_through_request(
             logging_obj=logging_obj,
             headers=response.headers,
         )
+        apply_upstream_reported_operation(logging_obj, response.headers)
 
         if _is_streaming_response(response) is True:
             logging_obj.stream = True

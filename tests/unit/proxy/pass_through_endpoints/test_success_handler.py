@@ -10,6 +10,7 @@ from pydantic import TypeAdapter
 
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
+from litellm.integrations.otel.model.semconv import PASSTHROUGH_OPERATION_KEY, GenAIOperation
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.litellm_core_utils.logging_worker import GLOBAL_LOGGING_WORKER
 from litellm.proxy.pass_through_endpoints.streaming_handler import (
@@ -648,3 +649,41 @@ def test_vertex_ai_live_route_without_usage_frames_yields_no_logging_response(
 
     assert normalized["standard_logging_response_object"] is None
     assert normalized["kwargs"] == {"model": _LIVE_MODEL}
+
+
+@pytest.mark.usefixtures("_drain_logging_worker", "_vcr_outcome_gate")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [(None, GenAIOperation.LITELLM_PASSTHROUGH), (GenAIOperation.RETRIEVAL, GenAIOperation.RETRIEVAL)],
+)
+async def test_unparsed_response_is_labelled_passthrough_unless_the_upstream_named_it(
+    reported: GenAIOperation | None, expected: GenAIOperation
+):
+    url: Final = "https://doc-app.internal/search"
+    logging_obj: Final = LiteLLMLoggingObj(
+        model="unknown",
+        messages=[],
+        stream=False,
+        call_type="pass_through_endpoint",
+        start_time=datetime.now(),
+        litellm_call_id="search-1",
+        function_id="search",
+    )
+    if reported is not None:
+        logging_obj.model_call_details[PASSTHROUGH_OPERATION_KEY] = reported
+
+    await PassThroughEndpointLogging().pass_through_async_success_handler(
+        httpx_response=httpx.Response(200, request=httpx.Request("POST", url), json={"chunks": []}),
+        response_body={"chunks": []},
+        logging_obj=logging_obj,
+        url_route=url,
+        result="",
+        start_time=datetime.now(),
+        end_time=datetime.now(),
+        cache_hit=False,
+        request_body={},
+        passthrough_logging_payload=PassthroughStandardLoggingPayload(url=url, request_body={}, request_method="POST"),
+    )
+
+    assert logging_obj.model_call_details[PASSTHROUGH_OPERATION_KEY] is expected

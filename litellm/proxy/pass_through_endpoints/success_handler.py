@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import httpx
 
 from litellm.constants import AZURE_SPEECH_CUSTOM_LLM_PROVIDER
+from litellm.integrations.otel.model.semconv import PASSTHROUGH_OPERATION_KEY, GenAIOperation
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.proxy._types import PassThroughEndpointLoggingResultValues
 from litellm.types.passthrough_endpoints.pass_through_endpoints import (
@@ -501,6 +502,7 @@ class PassThroughEndpointLogging:
             ]
             kwargs = normalized_llm_passthrough_logging_payload["kwargs"]
         if standard_logging_response_object is None:
+            logging_obj.model_call_details.setdefault(PASSTHROUGH_OPERATION_KEY, GenAIOperation.LITELLM_PASSTHROUGH)
             standard_logging_response_object = StandardPassThroughResponseObject(
                 response=_safe_response_text(httpx_response)
             )

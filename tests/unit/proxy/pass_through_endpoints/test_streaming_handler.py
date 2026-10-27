@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import litellm
+from litellm.integrations.otel.model.semconv import PASSTHROUGH_OPERATION_KEY, GenAIOperation
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.litellm_core_utils.logging_worker import GLOBAL_LOGGING_WORKER
 from litellm.proxy.pass_through_endpoints.llm_provider_handlers.vertex_passthrough_logging_handler import (
@@ -113,6 +114,31 @@ def test_streaming_generate_content_bills_against_the_requested_provider(
 
     assert kwargs["response_cost"] == pytest.approx(expected_cost)
     assert logging_obj.model_call_details["custom_llm_provider"] == expected_provider
+
+
+@pytest.mark.parametrize(
+    ("call_type", "expected"),
+    [("pass_through_endpoint", GenAIOperation.LITELLM_PASSTHROUGH), ("anthropic_messages", None)],
+)
+def test_unparsed_stream_is_labelled_passthrough_only_for_a_passthrough_call(
+    call_type: str, expected: GenAIOperation | None
+):
+    logging_obj = _logging_obj()
+    logging_obj.call_type = call_type
+
+    PassThroughStreamingHandler._build_passthrough_logging_result(
+        litellm_logging_obj=logging_obj,
+        passthrough_success_handler_obj=PassThroughEndpointLogging(),
+        url_route="https://doc-app.internal/search",
+        request_body={},
+        endpoint_type=EndpointType.GENERIC,
+        start_time=datetime.now(),
+        raw_bytes=[b'data: {"chunk": 1}\n\n'],
+        end_time=datetime.now(),
+        model=None,
+    )
+
+    assert logging_obj.model_call_details.get(PASSTHROUGH_OPERATION_KEY) is expected
 
 
 def test_vertex_generate_content_payload_prices_gemini_urls_at_gemini_rates():

@@ -8,6 +8,7 @@ import httpx
 
 import litellm
 from litellm._logging import verbose_proxy_logger
+from litellm.integrations.otel.model.semconv import PASSTHROUGH_OPERATION_KEY, GenAIOperation
 from litellm.litellm_core_utils.asyncify import asyncify
 from litellm.litellm_core_utils.core_helpers import bind_budget_reservation_to_callbacks
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
@@ -17,7 +18,7 @@ from litellm.proxy._types import PassThroughEndpointLoggingResultValues
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
 from litellm.proxy.common_utils.sse_keepalive import split_complete_sse_frames
 from litellm.types.passthrough_endpoints.pass_through_endpoints import EndpointType
-from litellm.types.utils import StandardPassThroughResponseObject, Usage
+from litellm.types.utils import CallTypes, StandardPassThroughResponseObject, Usage
 
 from .llm_provider_handlers.anthropic_passthrough_logging_handler import (
     AnthropicPassthroughLoggingHandler,
@@ -513,6 +514,11 @@ class PassThroughStreamingHandler:
             kwargs = openai_passthrough_logging_handler_result["kwargs"]
 
         if standard_logging_response_object is None:
+            # Native /v1/messages and google-genai streams reuse this builder; they keep their own operation.
+            if litellm_logging_obj.call_type == CallTypes.pass_through.value:
+                litellm_logging_obj.model_call_details.setdefault(
+                    PASSTHROUGH_OPERATION_KEY, GenAIOperation.LITELLM_PASSTHROUGH
+                )
             standard_logging_response_object = StandardPassThroughResponseObject(
                 response=f"cannot parse chunks to standard response object. Chunks={all_chunks}"
             )
