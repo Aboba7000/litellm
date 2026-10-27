@@ -38,6 +38,7 @@ import litellm
 import litellm.proxy.proxy_server as ps
 from litellm._service_logger import ServiceLogging
 from litellm._internal_context import current_service_target
+from litellm.caching.dual_cache import DualCache
 from litellm.caching.in_memory_cache import InMemoryCache
 from litellm.caching.redis_cache import RedisCache, RedisCircuitBreaker
 from litellm.constants import GLOBAL_PROXY_SPEND_CACHE_KEY
@@ -1329,32 +1330,57 @@ async def test_ensure_spend_counter_initialized_warm_skips_reseed_and_source(
     }
 
 
-@pytest.mark.asyncio
-async def test_ensure_spend_counter_initialized_cold_seeds_from_source_cache(
-    monkeypatch,
-):
-    fake_cache = _make_spend_counter_cache(redis_get_value=None, redis_increment_value=7.0)
-    fake_user_cache = _make_user_api_key_cache(get_value={"spend": 7.0})
-    monkeypatch.setattr(ps, "spend_counter_cache", fake_cache)
-    monkeypatch.setattr(ps, "user_api_key_cache", fake_user_cache)
-    monkeypatch.setattr(ps, "prisma_client", None)
-    monkeypatch.setattr(ps.SpendCounterReseed, "coalesced", AsyncMock(return_value=None))
+class _SharedRedisCounters:
+    """The Redis counter commands a cold start uses, yielding first like a network call so overlapping starts
+    interleave the way they do across workers and pods."""
 
-    await ps._ensure_spend_counter_initialized(
-        counter_key="spend:user:u",
-        source_cache_key="u",
+    def __init__(self) -> None:
+        self.values: Final[dict[str, float]] = {}  # mutable-ok: stands in for the Redis keyspace
+
+    async def async_get_cache(self, key: str, **_: object) -> float | None:
+        await asyncio.sleep(0)
+        return self.values.get(key)
+
+    async def async_increment(self, key: str, value: float, **_: object) -> float:
+        await asyncio.sleep(0)
+        self.values[key] = self.values.get(key, 0.0) + value
+        return self.values[key]
+
+    async def async_set_max(self, key: str, value: float, **_: object) -> float:
+        await asyncio.sleep(0)
+        self.values[key] = max(self.values.get(key, value), value)
+        return self.values[key]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_redis", (True, False))
+@pytest.mark.parametrize("counter_key", ("spend:end_user:customer-1", "spend:tag:tag-1"))
+async def test_overlapping_cold_starts_count_the_cached_spend_once(monkeypatch, with_redis, counter_key):
+    cached_spend: Final = {"first-start": 2.5, "second-start": 6.0, "third-start": 6.0, "fourth-start": 2.5}
+
+    async def _cached_object(key: str, **_: object) -> dict[str, float]:
+        await asyncio.sleep(0)
+        return {"spend": cached_spend[key]}
+
+    redis: Final = _SharedRedisCounters()
+    counters: Final = DualCache(
+        in_memory_cache=InMemoryCache(), redis_cache=cast(RedisCache, redis) if with_redis else None
+    )
+    objects: Final = MagicMock()
+    objects.async_get_cache = AsyncMock(side_effect=_cached_object)
+    monkeypatch.setattr(ps, "spend_counter_cache", counters)
+    monkeypatch.setattr(ps, "user_api_key_cache", objects)
+    monkeypatch.setattr(ps, "prisma_client", None)
+
+    await asyncio.gather(
+        *(
+            ps.ensure_spend_counter_initialized(counter_key=counter_key, source_cache_key=start)
+            for start in cached_spend
+        )
     )
 
-    observed = {
-        "source_cache_called": fake_user_cache.async_get_cache.called,
-        "seed_increment_called": fake_cache.redis_cache.async_increment.called,
-        "warm_check_done": fake_cache.redis_cache.async_get_cache.called,
-    }
-    assert normalize(observed) == {
-        "source_cache_called": True,
-        "seed_increment_called": True,
-        "warm_check_done": True,
-    }
+    seeded: Final = redis.values.get(counter_key) if with_redis else counters.in_memory_cache.get_cache(key=counter_key)
+    assert seeded == 6.0
 
 
 # ---------------------------------------------------------------------------
