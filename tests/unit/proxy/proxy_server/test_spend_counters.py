@@ -1355,7 +1355,9 @@ class _SharedRedisCounters:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_redis", (True, False))
 @pytest.mark.parametrize("counter_key", ("spend:end_user:customer-1", "spend:tag:tag-1"))
-async def test_overlapping_cold_starts_count_the_cached_spend_once(monkeypatch, with_redis, counter_key):
+async def test_overlapping_cold_starts_count_the_cached_spend_once(
+    monkeypatch: pytest.MonkeyPatch, with_redis: bool, counter_key: str
+) -> None:
     cached_spend: Final = {"first-start": 2.5, "second-start": 6.0, "third-start": 6.0, "fourth-start": 2.5}
 
     async def _cached_object(key: str, **_: object) -> dict[str, float]:
@@ -1395,7 +1397,9 @@ class _RedisThatFailsTheLift:
 
 
 @pytest.mark.asyncio
-async def test_a_redis_failure_while_lifting_a_cold_counter_drops_the_local_copy_and_raises(monkeypatch):
+async def test_a_redis_failure_while_lifting_a_cold_counter_drops_the_local_copy_and_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     counter_key: Final = "spend:end_user:customer-1"
     counters: Final = DualCache(in_memory_cache=InMemoryCache(), redis_cache=cast(RedisCache, _RedisThatFailsTheLift()))
     counters.in_memory_cache.set_cache(key=counter_key, value=2.0)
