@@ -145,9 +145,39 @@ def test_unparsed_stream_is_labelled_passthrough_only_for_a_passthrough_call(
         raw_bytes=[b'data: {"chunk": 1}\n\n'],
         end_time=datetime(2025, 1, 2, 3, 4, 9, tzinfo=timezone.utc),
         model=None,
+        label_unparsed_as_passthrough=True,
     )
 
     assert logging_obj.model_call_details.get(PASSTHROUGH_OPERATION_KEY) is expected
+
+
+@pytest.mark.asyncio
+async def test_failed_openai_stream_is_not_labelled_passthrough() -> None:
+    start: Final = datetime(2025, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    logging_obj: Final = LiteLLMLoggingObj(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": "ping"}],
+        stream=True,
+        call_type="pass_through_endpoint",
+        start_time=start,
+        litellm_call_id="cut-stream",
+        function_id="cut-stream",
+    )
+    logging_obj.update_environment_variables(litellm_params={}, optional_params={})
+
+    await PassThroughStreamingHandler.schedule_stream_failure_logging(
+        litellm_logging_obj=logging_obj,
+        endpoint_type=EndpointType.OPENAI,
+        request_body={"model": "gpt-4o-mini", "stream": True},
+        raw_bytes=[b'data: {"id":"chatcmpl-1","object":"chat.comp'],
+        exception=RuntimeError("upstream closed the stream"),
+        stream_context=PassThroughStreamContext(
+            PassThroughEndpointLogging(), "https://api.openai.com/v1/chat/completions", start
+        ),
+    )
+    await GLOBAL_LOGGING_WORKER.flush()
+
+    assert PASSTHROUGH_OPERATION_KEY not in logging_obj.model_call_details
 
 
 def test_vertex_generate_content_payload_prices_gemini_urls_at_gemini_rates():

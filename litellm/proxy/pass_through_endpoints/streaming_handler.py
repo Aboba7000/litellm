@@ -406,6 +406,7 @@ class PassThroughStreamingHandler:
                 raw_bytes=raw_bytes,
                 end_time=end_time,
                 model=model,
+                label_unparsed_as_passthrough=True,
             )
             # Always reached from an async context (anthropic_messages,
             # google_genai, and proxy pass-through stream tasks). prefer_async_handlers
@@ -435,6 +436,8 @@ class PassThroughStreamingHandler:
         raw_bytes: Sequence[bytes],
         end_time: datetime,
         model: str | None,
+        *,
+        label_unparsed_as_passthrough: bool = False,
     ) -> tuple[PassThroughEndpointLoggingResultValues, dict]:
         """
         Synchronous, CPU-bound reconstruction of the standard logging payload
@@ -514,8 +517,12 @@ class PassThroughStreamingHandler:
             kwargs = openai_passthrough_logging_handler_result["kwargs"]
 
         if standard_logging_response_object is None:
+            # Only a finished stream is labelled: a failed one can't tell a parsed route from an unparsed one.
             # Native /v1/messages and google-genai streams reuse this builder; they keep their own operation.
-            if litellm_logging_obj.model_call_details.get("call_type") == CallTypes.pass_through.value:
+            if (
+                label_unparsed_as_passthrough
+                and litellm_logging_obj.model_call_details.get("call_type") == CallTypes.pass_through.value
+            ):
                 litellm_logging_obj.model_call_details.setdefault(
                     PASSTHROUGH_OPERATION_KEY, GenAIOperation.LITELLM_PASSTHROUGH
                 )
