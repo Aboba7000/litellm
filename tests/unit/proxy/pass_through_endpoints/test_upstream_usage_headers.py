@@ -1,4 +1,6 @@
 
+from typing import Final
+
 import httpx
 import pytest
 
@@ -131,8 +133,8 @@ def test_apply_only_overwrites_what_upstream_reported():
 
 
 @pytest.mark.parametrize("operation", [GenAIOperation.RETRIEVAL, GenAIOperation.EMBEDDINGS])
-def test_apply_operation_records_the_operation_the_upstream_named(operation: GenAIOperation):
-    logging_obj = _logging_obj()
+def test_apply_operation_records_the_operation_the_upstream_named(operation: GenAIOperation) -> None:
+    logging_obj: Final = _logging_obj()
 
     apply_upstream_reported_operation(logging_obj, _headers(**{"x-litellm-operation-name": operation.value}))
 
@@ -143,8 +145,8 @@ def test_apply_operation_records_the_operation_the_upstream_named(operation: Gen
     "headers",
     [{}, {"x-litellm-operation-name": "summarize"}, {"x-litellm-operation-name": "Retrieval"}],
 )
-def test_apply_operation_ignores_a_missing_or_unknown_name(headers: dict[str, str]):
-    logging_obj = _logging_obj()
+def test_apply_operation_ignores_a_missing_or_unknown_name(headers: dict[str, str]) -> None:
+    logging_obj: Final = _logging_obj()
 
     apply_upstream_reported_operation(logging_obj, _headers(**headers))
 

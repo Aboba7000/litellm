@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Final
 from unittest.mock import MagicMock
 
@@ -122,9 +122,18 @@ def test_streaming_generate_content_bills_against_the_requested_provider(
 )
 def test_unparsed_stream_is_labelled_passthrough_only_for_a_passthrough_call(
     call_type: str, expected: GenAIOperation | None
-):
-    logging_obj = _logging_obj()
-    logging_obj.model_call_details["call_type"] = call_type
+) -> None:
+    start: Final = datetime(2025, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    logging_obj: Final = LiteLLMLoggingObj(
+        model="unknown",
+        messages=[],
+        stream=True,
+        call_type=call_type,
+        start_time=start,
+        litellm_call_id="search-1",
+        function_id="search",
+    )
+    logging_obj.update_environment_variables(litellm_params={}, optional_params={})
 
     PassThroughStreamingHandler._build_passthrough_logging_result(
         litellm_logging_obj=logging_obj,
@@ -132,9 +141,9 @@ def test_unparsed_stream_is_labelled_passthrough_only_for_a_passthrough_call(
         url_route="https://doc-app.internal/search",
         request_body={},
         endpoint_type=EndpointType.GENERIC,
-        start_time=datetime.now(),
+        start_time=start,
         raw_bytes=[b'data: {"chunk": 1}\n\n'],
-        end_time=datetime.now(),
+        end_time=datetime(2025, 1, 2, 3, 4, 9, tzinfo=timezone.utc),
         model=None,
     )
 

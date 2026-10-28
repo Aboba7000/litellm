@@ -24,6 +24,7 @@ dashboard already querying that histogram.
 import asyncio
 import json
 from datetime import datetime, timedelta
+from typing import Final
 
 import pytest
 
@@ -504,15 +505,12 @@ def test_agent_message_is_not_labelled_as_chat(call_type):
             assert dp.attributes[OPERATION_KEY] == "invoke_agent"
 
 
-def test_passthrough_operation_labels_the_metrics():
-    reader = InMemoryMetricReader()
+def test_passthrough_operation_labels_the_metrics() -> None:
+    reader: Final = InMemoryMetricReader()
     kwargs, response_obj, start, end = _build_call(call_type="pass_through_endpoint")
+    labelled: Final = {**kwargs, PASSTHROUGH_OPERATION_KEY: GenAIOperation.RETRIEVAL}
 
-    asyncio.run(
-        _logger(reader, enable_metrics=True).async_log_success_event(
-            {**kwargs, PASSTHROUGH_OPERATION_KEY: GenAIOperation.RETRIEVAL}, response_obj, start, end
-        )
-    )
+    asyncio.run(_logger(reader, enable_metrics=True).async_log_success_event(labelled, response_obj, start, end))
 
     for dp in _metrics_by_name(reader)[OPERATION_DURATION]:
         assert dp.attributes[OPERATION_KEY] == "retrieval"

@@ -1049,9 +1049,9 @@ class TestOpenTelemetrySemconvStability(unittest.TestCase):
         kwargs = {"model": "claude-sonnet-4-5", "call_type": "unknown"}
         self.assertEqual(h._get_span_name(kwargs), "chat claude-sonnet-4-5")
 
-    def test_passthrough_operation_names_the_span(self):
-        h = self._make(env="gen_ai_latest_experimental")
-        kwargs = {
+    def test_passthrough_operation_names_the_span(self) -> None:
+        h: Final = self._make(env="gen_ai_latest_experimental")
+        kwargs: Final = {
             "model": "unknown",
             "call_type": "pass_through_endpoint",
             PASSTHROUGH_OPERATION_KEY: GenAIOperation.RETRIEVAL,

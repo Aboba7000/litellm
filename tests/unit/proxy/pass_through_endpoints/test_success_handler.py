@@ -659,14 +659,14 @@ def test_vertex_ai_live_route_without_usage_frames_yields_no_logging_response(
 )
 async def test_unparsed_response_is_labelled_passthrough_unless_the_upstream_named_it(
     reported: GenAIOperation | None, expected: GenAIOperation
-):
+) -> None:
     url: Final = "https://doc-app.internal/search"
     logging_obj: Final = LiteLLMLoggingObj(
         model="unknown",
         messages=[],
         stream=False,
         call_type="pass_through_endpoint",
-        start_time=datetime.now(),
+        start_time=_START,
         litellm_call_id="search-1",
         function_id="search",
     )
@@ -679,8 +679,8 @@ async def test_unparsed_response_is_labelled_passthrough_unless_the_upstream_nam
         logging_obj=logging_obj,
         url_route=url,
         result="",
-        start_time=datetime.now(),
-        end_time=datetime.now(),
+        start_time=_START,
+        end_time=_END,
         cache_hit=False,
         request_body={},
         passthrough_logging_payload=PassthroughStandardLoggingPayload(url=url, request_body={}, request_method="POST"),
