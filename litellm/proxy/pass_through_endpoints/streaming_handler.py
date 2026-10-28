@@ -515,7 +515,7 @@ class PassThroughStreamingHandler:
 
         if standard_logging_response_object is None:
             # Native /v1/messages and google-genai streams reuse this builder; they keep their own operation.
-            if litellm_logging_obj.call_type == CallTypes.pass_through.value:
+            if litellm_logging_obj.model_call_details.get("call_type") == CallTypes.pass_through.value:
                 litellm_logging_obj.model_call_details.setdefault(
                     PASSTHROUGH_OPERATION_KEY, GenAIOperation.LITELLM_PASSTHROUGH
                 )

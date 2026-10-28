@@ -151,7 +151,7 @@ class OTELGenAISemconvMixin:
         Substring match (e.g. ``aembedding`` -> ``embeddings``); defaults to
         ``chat``. A pass-through call's operation, stored under ``PASSTHROUGH_OPERATION_KEY``, wins.
         """
-        passthrough_operation: Final = kwargs.get(PASSTHROUGH_OPERATION_KEY)
+        passthrough_operation: Final = kwargs.get(PASSTHROUGH_OPERATION_KEY)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]  # kwargs is an untyped dict
         if isinstance(passthrough_operation, GenAIOperation):
             return passthrough_operation.value
         call_type: Final = kwargs.get("call_type", "") or ""

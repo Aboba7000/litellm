@@ -124,7 +124,7 @@ def test_unparsed_stream_is_labelled_passthrough_only_for_a_passthrough_call(
     call_type: str, expected: GenAIOperation | None
 ):
     logging_obj = _logging_obj()
-    logging_obj.call_type = call_type
+    logging_obj.model_call_details["call_type"] = call_type
 
     PassThroughStreamingHandler._build_passthrough_logging_result(
         litellm_logging_obj=logging_obj,
